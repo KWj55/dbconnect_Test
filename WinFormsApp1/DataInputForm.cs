@@ -89,17 +89,9 @@ namespace WinFormsApp1
                 // 첫 번째 컬럼(ID)인 경우
                 if (isFirstColumn)
                 {
-                    // ID 값 자동 생성
-                    int maxId = 0;
-                    switch (tableName)
-                    {
-                        case "Book":
-                            maxId = dbManager.GetMaxBookId();
-                            break;
-                        // 다른 테이블들의 maxId 구하는 로직 추가 가능
-                    }
+                    // ID 값 자동 생성 (해당 컬럼의 최대값 + 1 사용)
+                    int maxId = dbManager.GetMaxId(tableName, column.Key);
 
-                    // TextBox 생성 (읽기 전용)
                     var textBox = new TextBox
                     {
                         Location = new Point(150, yPos),
