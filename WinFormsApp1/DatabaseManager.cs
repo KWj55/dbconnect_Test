@@ -286,12 +286,12 @@ namespace WinFormsApp1
         }
 
 
-        // Book 테이블에서 가장 큰 bookid를 가져오는 메서드
-        public int GetMaxBookId()
+        // 지정된 테이블의 ID 컬럼에서 최대 값을 구하는 메서드
+        public int GetMaxId(string tableName, string idColumnName)
         {
             try
             {
-                string query = "SELECT ISNULL(MAX(bookid), 0) FROM Book";
+                string query = $"SELECT ISNULL(MAX([{idColumnName}]), 0) FROM [{tableName}]"; 
                 using (SqlCommand command = new SqlCommand(query, connection))
                 {
                     return Convert.ToInt32(command.ExecuteScalar());
@@ -299,179 +299,60 @@ namespace WinFormsApp1
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"도서 ID 조회 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"ID 조회 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return -1;
             }
         }
 
-        // 도서 관련 메서드들
-        public bool AddBook(Dictionary<string, object> bookData)
+        // 현재 데이터베이스의 테이블 목록을 반환
+        public List<string> GetTableNames()
         {
+            var tables = new List<string>();
             try
             {
-                return AddDataEntry("Book", bookData);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"도서 추가 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return false;
-            }
-        }
-
-        public bool UpdateBook(Dictionary<string, object> bookData)
-        {
-            try
-            {
-                return UpdateDataEntry("Book", "bookid", bookData);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"도서 수정 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return false;
-            }
-        }
-
-        public bool DeleteBook(int bookId)
-        {
-            try
-            {
-                return DeleteDataEntry("Book", "bookid", bookId);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"도서 삭제 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return false;
-            }
-        }
-
-        // 주문 관련 메서드들
-        public bool AddOrder(Dictionary<string, object> orderData)
-        {
-            try
-            {
-                // orderdate가 없으면 현재 날짜를 사용
-                if (!orderData.ContainsKey("orderdate"))
+                if (connection?.State != ConnectionState.Open)
                 {
-                    orderData["orderdate"] = DateTime.Now;
+                    if (!Connect()) return tables;
                 }
 
-                return AddDataEntry("Orders", orderData);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"주문 추가 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return false;
-            }
-        }
-
-        public bool UpdateOrder(Dictionary<string, object> orderData)
-        {
-            try
-            {
-                return UpdateDataEntry("Orders", "orderid", orderData);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"주문 수정 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return false;
-            }
-        }
-
-        public bool DeleteOrder(int orderId)
-        {
-            try
-            {
-                return DeleteDataEntry("Orders", "orderid", orderId);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"주문 삭제 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return false;
-            }
-        }
-
-        public DataTable GetBooks()
-        {
-            return GetTableData("Book");
-        }
-
-        public DataTable GetOrders()
-        {
-            return GetTableData("Orders");
-        }
-
-        // 데이터 검증 메서드들
-        public bool ValidateBookData(Dictionary<string, object> data)
-        {
-            if (!data.ContainsKey("bookname") || string.IsNullOrWhiteSpace(data["bookname"].ToString()))
-                return false;
-
-            if (!data.ContainsKey("publisher") || string.IsNullOrWhiteSpace(data["publisher"].ToString()))
-                return false;
-
-            if (!data.ContainsKey("price") || !int.TryParse(data["price"].ToString(), out int price) || price < 0)
-                return false;
-
-            return true;
-        }
-
-        public bool ValidateOrderData(Dictionary<string, object> data)
-        {
-            if (!data.ContainsKey("custid") || !int.TryParse(data["custid"].ToString(), out int custid))
-                return false;
-
-            if (!data.ContainsKey("bookid") || !int.TryParse(data["bookid"].ToString(), out int bookid))
-                return false;
-
-            if (!data.ContainsKey("saleprice") || !int.TryParse(data["saleprice"].ToString(), out int saleprice) || saleprice < 0)
-                return false;
-
-            // orderdate는 자동으로 현재 날짜를 사용할 수 있으므로 필수 검사에서 제외
-
-            // 고객 ID와 도서 ID가 실제로 존재하는지 확인
-            if (!CustomerExists(custid))
-                return false;
-
-            if (!BookExists(bookid))
-                return false;
-
-            return true;
-        }
-
-        private bool CustomerExists(int custid)
-        {
-            try
-            {
-                string query = "SELECT COUNT(*) FROM Customer WHERE custid = @custid";
-                using (SqlCommand command = new SqlCommand(query, connection))
+                DataTable schema = connection.GetSchema("Tables");
+                foreach (DataRow row in schema.Rows)
                 {
-                    command.Parameters.AddWithValue("@custid", custid);
-                    int count = Convert.ToInt32(command.ExecuteScalar());
-                    return count > 0;
+                    if (row["TABLE_TYPE"].ToString() == "BASE TABLE")
+                        tables.Add(row["TABLE_NAME"].ToString());
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return false;
+                MessageBox.Show($"테이블 목록 조회 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+            return tables;
         }
 
-        private bool BookExists(int bookid)
+        // 지정된 테이블의 컬럼 이름과 데이터 타입 정보를 조회
+        public Dictionary<string, string> GetColumnTypes(string tableName)
         {
+            var result = new Dictionary<string, string>();
             try
             {
-                string query = "SELECT COUNT(*) FROM Book WHERE bookid = @bookid";
-                using (SqlCommand command = new SqlCommand(query, connection))
+                if (connection?.State != ConnectionState.Open)
                 {
-                    command.Parameters.AddWithValue("@bookid", bookid);
-                    int count = Convert.ToInt32(command.ExecuteScalar());
-                    return count > 0;
+                    if (!Connect()) return result;
+                }
+
+                DataTable schema = connection.GetSchema("Columns", new string[] { null, null, tableName, null });
+                foreach (DataRow row in schema.Rows)
+                {
+                    string column = row["COLUMN_NAME"].ToString();
+                    string type = row["DATA_TYPE"].ToString();
+                    result[column] = type;
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return false;
+                MessageBox.Show($"컬럼 정보 조회 중 오류 발생: {ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+            return result;
         }
     }
 } 

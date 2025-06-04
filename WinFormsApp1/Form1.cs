@@ -13,38 +13,8 @@ namespace WinFormsApp1
         private Label welcomeLabel; // 환영 메시지를 표시할 레이블
         private ToolStripComboBox tableComboBox;  // 테이블 선택 콤보박스
 
-        // 테이블별 컬럼 타입 정보
-        private readonly Dictionary<string, Dictionary<string, string>> tableColumnTypes = new Dictionary<string, Dictionary<string, string>>
-        {
-            {
-                "Book", new Dictionary<string, string>
-                {
-                    { "bookid", "int" },
-                    { "bookname", "nvarchar" },
-                    { "publisher", "nvarchar" },
-                    { "price", "int" }
-                }
-            },
-            {
-                "Customer", new Dictionary<string, string>
-                {
-                    { "custid", "int" },
-                    { "name", "nvarchar" },
-                    { "address", "nvarchar" },
-                    { "phone", "nvarchar" }
-                }
-            },
-            {
-                "Orders", new Dictionary<string, string>
-                {
-                    { "orderid", "int" },
-                    { "custid", "int" },
-                    { "bookid", "int" },
-                    { "saleprice", "int" },
-                    { "orderdate", "datetime" }
-                }
-            }
-        };
+        // 테이블별 컬럼 타입 캐시
+        private readonly Dictionary<string, Dictionary<string, string>> tableColumnTypes = new();
 
         public Form1()
         {
@@ -67,14 +37,13 @@ namespace WinFormsApp1
                 ToolTipText = "테이블 선택"
             };
 
-            // 사용 가능한 테이블 목록 추가
-            tableComboBox.Items.AddRange(new string[] {
-                "선택하세요",
-                "Book",
-                "Customer",
-                "imported_book",
-                "Orders"
-            });
+            // 사용 가능한 테이블 목록 동적 로드
+            var tables = dbManager.GetTableNames();
+            tableComboBox.Items.Add("선택하세요");
+            foreach (var t in tables)
+            {
+                tableComboBox.Items.Add(t);
+            }
 
             // 기본값 선택
             tableComboBox.SelectedIndex = 0;  // "선택하세요"를 기본값으로
@@ -119,11 +88,15 @@ namespace WinFormsApp1
 
             try
             {
-                // 테이블의 컬럼 타입 정보 가져오기
                 if (!tableColumnTypes.ContainsKey(currentTable))
                 {
-                    MessageBox.Show($"{currentTable} 테이블의 스키마 정보가 정의되지 않았습니다.", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
+                    var schema = dbManager.GetColumnTypes(currentTable);
+                    if (schema.Count == 0)
+                    {
+                        MessageBox.Show($"{currentTable} 테이블의 스키마 정보를 가져올 수 없습니다.", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                    tableColumnTypes[currentTable] = schema;
                 }
 
                 var columnTypes = tableColumnTypes[currentTable];
@@ -135,56 +108,7 @@ namespace WinFormsApp1
                     {
                         var data = inputForm.FormData;
 
-                        // ID 필드 자동 설정 (예: bookid, custid, orderid)
-                        string idField = currentTable.ToLower() + "id";
-                        if (columnTypes.ContainsKey(idField))
-                        {
-                            int maxId = 0;
-                            switch (currentTable)
-                            {
-                                case "Book":
-                                    maxId = dbManager.GetMaxBookId();
-                                    break;
-                                // 다른 테이블들의 maxId 구하는 로직 추가 가능
-                            }
-                            data[idField] = maxId + 1;
-                        }
-
-                        // 데이터 유효성 검사
-                        bool isValid = true;
-                        string errorMessage = "";
-
-                        switch (currentTable)
-                        {
-                            case "Book":
-                                isValid = dbManager.ValidateBookData(data);
-                                break;
-                            case "Orders":
-                                isValid = dbManager.ValidateOrderData(data);
-                                break;
-                            // 다른 테이블들의 유효성 검사 추가 가능
-                        }
-
-                        if (!isValid)
-                        {
-                            MessageBox.Show($"입력된 데이터가 유효하지 않습니다.\n{errorMessage}", "유효성 검사 오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            return;
-                        }
-
-                        // 데이터베이스에 추가
-                        bool success = false;
-                        switch (currentTable)
-                        {
-                            case "Book":
-                                success = dbManager.AddBook(data);
-                                break;
-                            case "Orders":
-                                success = dbManager.AddOrder(data);
-                                break;
-                            default:
-                                success = dbManager.AddDataEntry(currentTable, data);
-                                break;
-                        }
+                        bool success = dbManager.AddDataEntry(currentTable, data);
 
                         if (success)
                         {
@@ -238,20 +162,8 @@ namespace WinFormsApp1
                         int successCount = 0;
                         foreach (var row in modifiedRows)
                         {
-                            bool success = false;
-                            switch (currentTable)
-                            {
-                                case "Book":
-                                    success = dbManager.UpdateBook(row);
-                                    break;
-                                case "Orders":
-                                    success = dbManager.UpdateOrder(row);
-                                    break;
-                                default:
-                                    string idColumnName = $"{currentTable.ToLower()}id";
-                                    success = dbManager.UpdateDataEntry(currentTable, idColumnName, row);
-                                    break;
-                            }
+                            string idColumnName = dataGridView1.Columns[0].Name;
+                            bool success = dbManager.UpdateDataEntry(currentTable, idColumnName, row);
                             if (success) successCount++;
                         }
 
@@ -524,110 +436,6 @@ namespace WinFormsApp1
             }
         }
 
-        private void BookDataGridView_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
-        {
-            if (e.RowIndex < 0) return;
-
-            try
-            {
-                var row = dataGridView1.Rows[e.RowIndex];
-                
-                // 각 셀의 값이 null인지 확인
-                if (row.Cells["bookid"].Value == null || 
-                    row.Cells["bookname"].Value == null || 
-                    row.Cells["publisher"].Value == null || 
-                    row.Cells["price"].Value == null)
-                {
-                    MessageBox.Show("데이터에 누락된 값이 있습니다.", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
-                var existingData = new Dictionary<string, object>
-                {
-                    { "bookid", Convert.ToInt32(row.Cells["bookid"].Value) },
-                    { "bookname", row.Cells["bookname"].Value.ToString().Trim() },
-                    { "publisher", row.Cells["publisher"].Value.ToString().Trim() },
-                    { "price", Convert.ToInt32(row.Cells["price"].Value) }
-                };
-
-                var columnTypes = new Dictionary<string, string>
-                {
-                    { "bookid", "int" },
-                    { "bookname", "nvarchar" },
-                    { "publisher", "nvarchar" },
-                    { "price", "int" }
-                };
-
-                using (var editForm = new DataEditForm("Book", columnTypes, existingData, "bookid"))
-                {
-                    if (editForm.ShowDialog() == DialogResult.OK)
-                    {
-                        var data = editForm.FormData;
-                        if (dbManager.ValidateBookData(data) && dbManager.UpdateBook(data))
-                        {
-                            MessageBox.Show("도서 정보가 성공적으로 수정되었습니다.", "성공", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                            LoadTableData("Book");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"도서 정보 수정 중 오류가 발생했습니다.\n{ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                dataGridView1.CellDoubleClick -= BookDataGridView_CellDoubleClick;
-            }
-        }
-
-        private void OrderDataGridView_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
-        {
-            if (e.RowIndex < 0) return;
-
-            try
-            {
-                var row = dataGridView1.Rows[e.RowIndex];
-                var existingData = new Dictionary<string, object>
-                {
-                    { "orderid", Convert.ToInt32(row.Cells["orderid"].Value) },
-                    { "custid", Convert.ToInt32(row.Cells["custid"].Value) },
-                    { "bookid", Convert.ToInt32(row.Cells["bookid"].Value) },
-                    { "saleprice", Convert.ToInt32(row.Cells["saleprice"].Value) },
-                    { "orderdate", Convert.ToDateTime(row.Cells["orderdate"].Value) }
-                };
-
-                var columnTypes = new Dictionary<string, string>
-                {
-                    { "orderid", "int" },
-                    { "custid", "int" },
-                    { "bookid", "int" },
-                    { "saleprice", "int" },
-                    { "orderdate", "datetime" }
-                };
-
-                using (var editForm = new DataEditForm("Orders", columnTypes, existingData, "orderid"))
-                {
-                    if (editForm.ShowDialog() == DialogResult.OK)
-                    {
-                        var data = editForm.FormData;
-                        if (dbManager.ValidateOrderData(data) && dbManager.UpdateOrder(data))
-                        {
-                            MessageBox.Show("주문 정보가 성공적으로 수정되었습니다.", "성공", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                            LoadTableData("Orders");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"주문 정보 수정 중 오류가 발생했습니다.\n{ex.Message}", "오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                dataGridView1.CellDoubleClick -= OrderDataGridView_CellDoubleClick;
-            }
-        }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
